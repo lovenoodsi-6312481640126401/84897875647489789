@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Loading...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin:0; height:100vh; display:flex; justify-content:center; align-items:center; background:#fff; }
+    .spinner { width:60px; height:60px; border:6px solid rgba(255,0,0,0.3); border-top:6px solid red; border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { 0% { transform:rotate(0deg) } 100% { transform:rotate(360deg) } }
+    p { color:#111; font-family:Arial, sans-serif; margin-top:15px; text-align:center; }
+    .container { display:flex; flex-direction:column; align-items:center; }
+    /* responsive smaller spinner on small screens */
+    @media (max-width:420px) { .spinner { width:44px; height:44px; border-width:5px } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="message">Loading...</p>
+  </div>
+
+  <script>
+    // ====== CONFIG ======
+    const apiKey = "e8035f4f-bdb7-4fbc-aaca-ba226fa2c064"; // tetap publik kalau pakai client-side
+    const links = {
+      "gg": "https://o2o.to/i/COFLVD308AHK",
+      // tambahkan key: tujuan di sini
+    };
+    // Jika fragment/key tidak valid => fallbackHumanRedirect (null = no redirect)
+    const fallbackHumanRedirect = null; // misal "https://domainutama.com" atau null untuk pesan Shortlink not found
+
+    // ====== UTIL ======
+    function b64Encode(s) { try { return btoa(unescape(encodeURIComponent(s))); } catch(e){ return null } }
+    function b64Decode(s) { try { return decodeURIComponent(escape(atob(s))); } catch(e){ return null } }
+
+    function generateRandomSlug(len = 8) {
+      const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let out = "";
+      for (let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
+      return out;
+    }
+
+    // Utility: buat URL acak yang tetap mengarah ke key (jalankan ini di console untuk membagikan link)
+    // Usage example (run in console or admin UI): generateShareableURL('gg')
+    function generateShareableURL(key) {
+      if (!links[key]) throw new Error("Unknown key");
+      const slug = generateRandomSlug(10);
+      const encoded = b64Encode(key);
+      const base = location.origin + location.pathname; // https://username.github.io/repo/
+      // contoh: https://.../path/?r=sluggenerated#t=encodedKey
+      return `${base}?r=${slug}#t=${encoded}`;
+    }
+    // end util
+
+    // ====== PARAM / FRAGMENT RESOLUTION ======
+    const params = new URLSearchParams(window.location.search);
+    let targetKey = params.get("to") || null;
+
+    // If no "to" param, check fragment '#t=<base64key>'
+    if (!targetKey && location.hash) {
+      // accept hash formats: #t=..., #t:..., #target=...
+      const hash = location.hash.replace(/^#/, "");
+      const kv = new URLSearchParams(hash.replace(/[:]/g,'='));
+      const encoded = kv.get("t") || kv.get("target") || null;
+      if (encoded) {
+        const decoded = b64Decode(encoded);
+        if (decoded) targetKey = decoded;
+      }
+    }
+
+    async function checkVisitorAndRedirect() {
+      const msgEl = document.getElementById("message");
+      try {
+        msgEl.textContent = "Loading...";
+
+        // Request with info=true to get type (datacenter/vpn/proxy)
+        const res = await fetch("https://api.ipdetective.io/ip?info=true", {
+          headers: { "x-api-key": apiKey },
+          cache: "no-store"
+        });
+
+        if (!res.ok) {
+          console.warn("ipdetective returned non-OK:", res.status);
+          // fallback policy: assume human (safer to allow) — you can invert this if you prefer stricter blocking
+          return handleHuman();
+        }
+
+        const data = await res.json();
+        console.log("IPDetective response:", data);
+
+        // treat as bot if api says bot OR type indicates datacenter/vpn/proxy/bot
+        const botTypes = ["datacenter","vpn","proxy","bot"];
+        const isBot = !!data.bot || (data.type && botTypes.includes(String(data.type).toLowerCase()));
+
+        if (isBot) {
+          // redirect bot to random 404 path so it won't stay
+          const fakePath = "/404-" + Math.random().toString(36).substring(2);
+          window.location.replace(fakePath);
+        } else {
+          // human
+          return handleHuman();
+        }
+      } catch (err) {
+        console.error("Verification error:", err);
+        // fallback: if API fails, decide policy. We'll treat as human to avoid false block.
+        return handleHuman();
+      }
+    }
+
+    function handleHuman() {
+      const msgEl = document.getElementById("message");
+      if (targetKey && links[targetKey]) {
+        msgEl.textContent = "Loading...";
+        // short delay so spinner visible for a moment
+        setTimeout(()=> { window.location.replace(links[targetKey]); }, 250);
+      } else {
+        if (fallbackHumanRedirect) {
+          msgEl.textContent = "Loading...";
+          setTimeout(()=> { window.location.replace(fallbackHumanRedirect); }, 300);
+        } else {
+          msgEl.textContent = "Shortlink not found.";
+        }
+      }
+    }
+
+    // Start verification
+    checkVisitorAndRedirect();
+
+    // Expose generator function for convenience (dev console)
+    window.generateShareableURL = generateShareableURL;
+  </script>
+</body>
+</html>
